@@ -1,0 +1,257 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  passwordHash  String   @map("password_hash")
+  role          UserRole @default(regular)
+  isActive      Boolean  @default(true) @map("is_active")
+  emailVerified Boolean  @default(false) @map("email_verified")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  profile             Profile?
+  theses              Thesis[]
+  payments            Payment[]
+  reviewerAssignments ReviewerAssignment[]
+  reviewComments      ReviewComment[]
+  reviewerEarnings    ReviewerEarning[]
+  payoutRequests      PayoutRequest[]
+  invitationsCreated  InvitationLink[]         @relation("CreatedBy")
+  invitationsUsed     InvitationLink[]         @relation("UsedBy")
+  thesisSubmissions   ThesisReviewSubmission[]
+
+  @@map("users")
+}
+
+model Profile {
+  id              String        @id @default(cuid())
+  userId          String        @unique @map("user_id")
+  username        String        @unique @db.VarChar(50)
+  fullName        String        @map("full_name")
+  profilePhotoUrl String?       @map("profile_photo_url")
+  institution     String
+  fieldOfStudyId  String?       @map("field_of_study_id")
+  academicLevel   AcademicLevel @map("academic_level")
+  graduationYear  Int?          @map("graduation_year") @db.SmallInt
+  bio             String?
+  emailPublic     Boolean       @default(false) @map("email_public")
+  linkedinUrl     String?       @map("linkedin_url")
+  researchgateUrl String?       @map("researchgate_url")
+  alipayAccountId String?       @map("alipay_account_id")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fieldOfStudy FieldOfStudy? @relation(fields: [fieldOfStudyId], references: [id], onDelete: SetNull)
+
+  @@map("profiles")
+}
+
+model FieldOfStudy {
+  id              String   @id @default(cuid())
+  name            String   @unique
+  isOpenForReview Boolean  @default(false) @map("is_open_for_review")
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  profiles Profile[]
+  theses   Thesis[]
+
+  @@map("fields_of_study")
+}
+
+model Thesis {
+  id               String   @id @default(cuid())
+  userId           String   @map("user_id")
+  title            String
+  abstract         String
+  fieldOfStudyId   String?  @map("field_of_study_id")
+  yearOfSubmission Int      @map("year_of_submission") @db.SmallInt
+  institution      String
+  keywords         String[]
+  supervisorName   String?  @map("supervisor_name")
+  language         String?  @default("English")
+  filePath         String   @map("file_path")
+  fileSizeBytes    BigInt   @map("file_size_bytes")
+  visitCount       Int      @default(0) @map("visit_count")
+  downloadCount    Int      @default(0) @map("download_count")
+  isDeleted        Boolean  @default(false) @map("is_deleted")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  user                User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fieldOfStudy        FieldOfStudy?           @relation(fields: [fieldOfStudyId], references: [id], onDelete: SetNull)
+  reviewSubmission    ThesisReviewSubmission?
+  payments            Payment[]
+  reviewerAssignments ReviewerAssignment[]
+  reviewComments      ReviewComment[]
+  reviewerEarnings    ReviewerEarning[]
+
+  @@map("theses")
+}
+
+model ThesisReviewSubmission {
+  id             String   @id @default(cuid())
+  thesisId       String   @unique @map("thesis_id")
+  userId         String   @map("user_id")
+  currentStage   Int      @default(1) @map("current_stage") @db.SmallInt
+  paymentId      String?  @map("payment_id")
+  stageUpdatedAt DateTime @default(now()) @map("stage_updated_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  thesis  Thesis   @relation(fields: [thesisId], references: [id], onDelete: Cascade)
+  user    User     @relation(fields: [userId], references: [id])
+  payment Payment? @relation(fields: [paymentId], references: [id])
+
+  @@map("thesis_review_submissions")
+}
+
+model Payment {
+  id              String        @id @default(cuid())
+  thesisId        String        @map("thesis_id")
+  userId          String        @map("user_id")
+  stripeSessionId String        @unique @map("stripe_session_id")
+  amount          Decimal       @db.Decimal(10, 2)
+  currency        String        @default("MYR")
+  status          PaymentStatus @default(pending)
+  confirmedAt     DateTime?     @map("confirmed_at")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  thesis     Thesis                   @relation(fields: [thesisId], references: [id])
+  user       User                     @relation(fields: [userId], references: [id])
+  submission ThesisReviewSubmission[]
+
+  @@map("payments")
+}
+
+model ReviewerAssignment {
+  id          String           @id @default(cuid())
+  thesisId    String           @map("thesis_id")
+  reviewerId  String           @map("reviewer_id")
+  reviewRound Int              @map("review_round") @db.SmallInt
+  status      AssignmentStatus @default(in_progress)
+  assignedAt  DateTime         @default(now()) @map("assigned_at")
+  completedAt DateTime?        @map("completed_at")
+
+  thesis   Thesis            @relation(fields: [thesisId], references: [id], onDelete: Cascade)
+  reviewer User              @relation(fields: [reviewerId], references: [id])
+  comments ReviewComment[]
+  earning  ReviewerEarning?
+
+  @@unique([thesisId, reviewRound])
+  @@unique([thesisId, reviewerId])
+  @@map("reviewer_assignments")
+}
+
+model ReviewComment {
+  id              String   @id @default(cuid())
+  thesisId        String   @map("thesis_id")
+  assignmentId    String   @map("assignment_id")
+  authorId        String   @map("author_id")
+  parentCommentId String?  @map("parent_comment_id")
+  content         String
+  isDeleted       Boolean  @default(false) @map("is_deleted")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  thesis     Thesis             @relation(fields: [thesisId], references: [id], onDelete: Cascade)
+  assignment ReviewerAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  author     User               @relation(fields: [authorId], references: [id])
+  parent     ReviewComment?     @relation("CommentReplies", fields: [parentCommentId], references: [id], onDelete: Cascade)
+  replies    ReviewComment[]    @relation("CommentReplies")
+
+  @@map("review_comments")
+}
+
+model ReviewerEarning {
+  id              String   @id @default(cuid())
+  reviewerId      String   @map("reviewer_id")
+  assignmentId    String   @unique @map("assignment_id")
+  thesisId        String   @map("thesis_id")
+  amount          Decimal  @db.Decimal(10, 2)
+  currency        String   @default("MYR")
+  isPaid          Boolean  @default(false) @map("is_paid")
+  payoutRequestId String?  @map("payout_request_id")
+  earnedAt        DateTime @default(now()) @map("earned_at")
+
+  reviewer      User               @relation(fields: [reviewerId], references: [id])
+  assignment    ReviewerAssignment @relation(fields: [assignmentId], references: [id])
+  thesis        Thesis             @relation(fields: [thesisId], references: [id])
+  payoutRequest PayoutRequest?     @relation(fields: [payoutRequestId], references: [id])
+
+  @@map("reviewer_earnings")
+}
+
+model PayoutRequest {
+  id              String       @id @default(cuid())
+  reviewerId      String       @map("reviewer_id")
+  amount          Decimal      @db.Decimal(10, 2)
+  alipayAccountId String       @map("alipay_account_id")
+  status          PayoutStatus @default(pending)
+  adminNote       String?      @map("admin_note")
+  requestedAt     DateTime     @default(now()) @map("requested_at")
+  processedAt     DateTime?    @map("processed_at")
+
+  reviewer User              @relation(fields: [reviewerId], references: [id])
+  earnings ReviewerEarning[]
+
+  @@map("payout_requests")
+}
+
+model InvitationLink {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  createdBy String   @map("created_by")
+  usedBy    String?  @map("used_by")
+  expiresAt DateTime @map("expires_at")
+  isUsed    Boolean  @default(false) @map("is_used")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  creator User  @relation("CreatedBy", fields: [createdBy], references: [id])
+  user    User? @relation("UsedBy", fields: [usedBy], references: [id])
+
+  @@map("invitation_links")
+}
+
+enum UserRole {
+  regular
+  reviewer
+  admin
+}
+
+enum AcademicLevel {
+  undergraduate
+  postgraduate
+  phd
+  professional
+  other
+}
+
+enum PaymentStatus {
+  pending
+  confirmed
+  failed
+  refunded
+}
+
+enum AssignmentStatus {
+  in_progress
+  done
+}
+
+enum PayoutStatus {
+  pending
+  approved
+  paid
+  rejected
+}
