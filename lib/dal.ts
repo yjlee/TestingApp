@@ -10,6 +10,13 @@ export const verifySession = cache(async () => {
   return { userId: session.userId, role: session.role }
 })
 
+export const verifyReviewer = cache(async () => {
+  const session = await getSession()
+  if (!session?.userId) redirect('/login')
+  if (session.role !== 'reviewer' && session.role !== 'admin') redirect('/dashboard')
+  return { userId: session.userId, role: session.role }
+})
+
 export const getUser = cache(async () => {
   const session = await getSession()
   if (!session?.userId) return null

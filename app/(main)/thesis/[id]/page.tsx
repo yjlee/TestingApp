@@ -4,8 +4,11 @@ import Image from 'next/image'
 import dynamic from 'next/dynamic'
 import { db } from '@/lib/db'
 import { getSession } from '@/lib/session'
-import { User, Eye, Download, Calendar, Building2, Tag, BookOpen, ExternalLink } from 'lucide-react'
+import { REVIEW_FEE_MYR } from '@/lib/stripe'
+import { User, Eye, Download, Calendar, Building2, Tag, BookOpen, ExternalLink, AlertCircle } from 'lucide-react'
 import VisitTracker from '@/components/visit-tracker'
+import StageTracker from '@/components/stage-tracker'
+import CommentThread, { type NestedComment } from '@/components/comment-thread'
 
 const PdfReader = dynamic(() => import('@/components/pdf-reader'), {
   ssr: false,
@@ -18,17 +21,56 @@ const PdfReader = dynamic(() => import('@/components/pdf-reader'), {
   ),
 })
 
+type FlatComment = {
+  id: string; content: string; isDeleted: boolean; authorId: string
+  parentCommentId: string | null; createdAt: Date; updatedAt: Date
+  author: { profile: { fullName: string } | null } | null
+}
+
+function nestComments(flat: FlatComment[]): NestedComment[] {
+  const map = new Map<string, NestedComment>()
+  for (const c of flat) {
+    map.set(c.id, {
+      ...c,
+      createdAt: c.createdAt.toISOString(),
+      updatedAt: c.updatedAt.toISOString(),
+      replies: [],
+    })
+  }
+  const roots: NestedComment[] = []
+  for (const node of map.values()) {
+    if (node.parentCommentId && map.has(node.parentCommentId)) {
+      map.get(node.parentCommentId)!.replies.push(node)
+    } else {
+      roots.push(node)
+    }
+  }
+  return roots
+}
+
 function formatBytes(bytes: bigint): string {
   const mb = Number(bytes) / (1024 * 1024)
   return mb < 1 ? `${(Number(bytes) / 1024).toFixed(0)} KB` : `${mb.toFixed(1)} MB`
 }
 
+type CommentSection = {
+  assignmentId: string
+  reviewRound: number
+  reviewerUserId: string
+  canPost: boolean
+  canReply: boolean
+  comments: NestedComment[]
+}
+
 export default async function ThesisDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>
+  searchParams: Promise<{ cancelled?: string }>
 }) {
   const { id } = await params
+  const { cancelled } = await searchParams
   const session = await getSession()
 
   const thesis = await db.thesis.findUnique({
@@ -47,17 +89,13 @@ export default async function ThesisDetailPage({
       visitCount: true,
       downloadCount: true,
       createdAt: true,
-      fieldOfStudy: { select: { name: true } },
+      fieldOfStudy: { select: { name: true, isOpenForReview: true } },
+      reviewSubmission: { select: { currentStage: true } },
       user: {
         select: {
           id: true,
           profile: {
-            select: {
-              fullName: true,
-              username: true,
-              profilePhotoUrl: true,
-              institution: true,
-            },
+            select: { fullName: true, username: true, profilePhotoUrl: true, institution: true },
           },
         },
       },
@@ -69,11 +107,58 @@ export default async function ThesisDetailPage({
   const isOwner = session?.userId === thesis.user.id
   const isAuthed = !!session?.userId
   const author = thesis.user.profile
+  const fieldOpenForReview = thesis.fieldOfStudy?.isOpenForReview ?? false
+
+  // Load comment section for owner or assigned reviewer
+  let commentSection: CommentSection | null = null
+  if (session?.userId) {
+    const assignment = isOwner
+      ? await db.reviewerAssignment.findFirst({
+          where: { thesisId: thesis.id },
+          orderBy: { reviewRound: 'desc' },
+          select: { id: true, reviewerId: true, reviewRound: true, status: true },
+        })
+      : await db.reviewerAssignment.findFirst({
+          where: { thesisId: thesis.id, reviewerId: session.userId },
+          select: { id: true, reviewerId: true, reviewRound: true, status: true },
+        })
+
+    if (assignment) {
+      const flat = await db.reviewComment.findMany({
+        where: { assignmentId: assignment.id },
+        select: {
+          id: true, content: true, isDeleted: true,
+          authorId: true, parentCommentId: true,
+          createdAt: true, updatedAt: true,
+          author: { select: { profile: { select: { fullName: true } } } },
+        },
+        orderBy: { createdAt: 'asc' },
+      })
+
+      const isReviewer = assignment.reviewerId === session.userId
+      const isActive = assignment.status === 'in_progress'
+
+      commentSection = {
+        assignmentId: assignment.id,
+        reviewRound: assignment.reviewRound,
+        reviewerUserId: assignment.reviewerId,
+        canPost: isReviewer && isActive,
+        canReply: isActive,
+        comments: nestComments(flat),
+      }
+    }
+  }
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-10">
-      {/* Visit tracker — fires POST /api/visit/[id] on mount, skipped for owner */}
       <VisitTracker thesisId={thesis.id} />
+
+      {cancelled === '1' && (
+        <div className="mb-6 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-800">
+          <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
+          <span>Payment was cancelled. You can try again below.</span>
+        </div>
+      )}
 
       {/* Header */}
       <div className="mb-8">
@@ -115,7 +200,6 @@ export default async function ThesisDetailPage({
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-10">
-        {/* Main content */}
         <div className="lg:col-span-2 space-y-6">
           <section>
             <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">Abstract</h2>
@@ -129,9 +213,7 @@ export default async function ThesisDetailPage({
               </h2>
               <div className="flex flex-wrap gap-2">
                 {thesis.keywords.map((kw) => (
-                  <span key={kw} className="text-xs bg-gray-100 text-gray-600 px-2.5 py-1 rounded-full">
-                    {kw}
-                  </span>
+                  <span key={kw} className="text-xs bg-gray-100 text-gray-600 px-2.5 py-1 rounded-full">{kw}</span>
                 ))}
               </div>
             </section>
@@ -145,7 +227,6 @@ export default async function ThesisDetailPage({
           )}
         </div>
 
-        {/* Sidebar */}
         <div className="space-y-4">
           <div className="rounded-xl border border-gray-200 bg-white p-5">
             <p className="text-xs text-gray-400 mb-3">PDF · {formatBytes(thesis.fileSizeBytes)}</p>
@@ -175,33 +256,20 @@ export default async function ThesisDetailPage({
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-100 flex-shrink-0">
                   {author.profilePhotoUrl ? (
-                    <Image
-                      src={author.profilePhotoUrl}
-                      alt={author.fullName}
-                      width={40}
-                      height={40}
-                      className="object-cover w-full h-full"
-                    />
+                    <Image src={author.profilePhotoUrl} alt={author.fullName} width={40} height={40} className="object-cover w-full h-full" />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center text-gray-400">
-                      <User size={18} />
-                    </div>
+                    <div className="w-full h-full flex items-center justify-center text-gray-400"><User size={18} /></div>
                   )}
                 </div>
                 <div>
                   {author.username ? (
-                    <Link
-                      href={`/user/${author.username}`}
-                      className="text-sm font-medium text-gray-900 hover:text-blue-700 inline-flex items-center gap-1"
-                    >
+                    <Link href={`/user/${author.username}`} className="text-sm font-medium text-gray-900 hover:text-blue-700 inline-flex items-center gap-1">
                       {author.fullName} <ExternalLink size={11} />
                     </Link>
                   ) : (
                     <p className="text-sm font-medium text-gray-900">{author.fullName}</p>
                   )}
-                  {author.institution && (
-                    <p className="text-xs text-gray-400 mt-0.5">{author.institution}</p>
-                  )}
+                  {author.institution && <p className="text-xs text-gray-400 mt-0.5">{author.institution}</p>}
                 </div>
               </div>
             </div>
@@ -209,11 +277,55 @@ export default async function ThesisDetailPage({
         </div>
       </div>
 
+      {/* Review section — owner only */}
+      {isOwner && (
+        <div className="border-t border-gray-200 pt-8 mb-10">
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">Expert Review</h2>
+          {thesis.reviewSubmission ? (
+            <StageTracker currentStage={thesis.reviewSubmission.currentStage} />
+          ) : fieldOpenForReview ? (
+            <div className="rounded-xl border border-blue-200 bg-blue-50 p-5">
+              <p className="font-semibold text-blue-900 text-sm mb-1">Submit for Expert Review</p>
+              <p className="text-xs text-blue-700 mb-4">
+                An expert reviewer will evaluate your thesis. Fee: RM {REVIEW_FEE_MYR.toFixed(2)}
+              </p>
+              <Link
+                href={`/checkout/${thesis.id}`}
+                className="inline-block bg-blue-700 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-blue-800 transition-colors"
+              >
+                Proceed to payment →
+              </Link>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-gray-200 bg-gray-50 p-5">
+              <p className="text-sm text-gray-500">
+                Expert review is not currently available for this field of study.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Comment thread — owner and assigned reviewer only */}
+      {commentSection && (
+        <div className="border-t border-gray-200 pt-8 mb-10">
+          <CommentThread
+            thesisId={thesis.id}
+            assignmentId={commentSection.assignmentId}
+            reviewerUserId={commentSection.reviewerUserId}
+            currentUserId={session!.userId}
+            isOwner={isOwner}
+            canPost={commentSection.canPost}
+            canReply={commentSection.canReply}
+            reviewRound={commentSection.reviewRound}
+            comments={commentSection.comments}
+          />
+        </div>
+      )}
+
       {/* PDF Reader */}
       <div className="border-t border-gray-200 pt-8">
-        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">
-          Read Online
-        </h2>
+        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">Read Online</h2>
         <PdfReader fileUrl={thesis.filePath} />
       </div>
     </div>

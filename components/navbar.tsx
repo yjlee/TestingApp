@@ -7,6 +7,7 @@ import NavbarMobile from '@/components/navbar-mobile'
 export default async function Navbar() {
   const session = await getSession()
   const isAuthed = !!session?.userId
+  const isAdmin = session?.role === 'admin'
 
   return (
     <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
@@ -26,6 +27,11 @@ export default async function Navbar() {
               <>
                 <Link href="/dashboard" className="hover:text-blue-700 transition-colors">Dashboard</Link>
                 <Link href="/upload" className="hover:text-blue-700 transition-colors">Upload</Link>
+                {isAdmin && (
+                  <Link href="/admin" className="hover:text-blue-700 transition-colors font-medium text-purple-700">
+                    Admin
+                  </Link>
+                )}
               </>
             )}
           </div>
@@ -51,7 +57,7 @@ export default async function Navbar() {
           </div>
 
           {/* Mobile hamburger (client component) */}
-          <NavbarMobile isAuthed={isAuthed} />
+          <NavbarMobile isAuthed={isAuthed} isAdmin={isAdmin} />
         </div>
       </div>
     </nav>

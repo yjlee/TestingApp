@@ -3,21 +3,34 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { forgotPassword } from '@/lib/auth/actions'
-import { BookOpen } from 'lucide-react'
+import { BookOpen, Copy, Check } from 'lucide-react'
 
 export default function ForgotPasswordPage() {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const [devResetUrl, setDevResetUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [copied, setCopied] = useState(false)
 
   async function handleSubmit(formData: FormData) {
     setError(null)
     setSuccess(null)
+    setDevResetUrl(null)
     setLoading(true)
     const result = await forgotPassword(formData)
     if (result?.error) setError(result.error)
-    else if (result?.success) setSuccess(result.success)
+    else if (result?.success) {
+      setSuccess(result.success)
+      if (result.devResetUrl) setDevResetUrl(result.devResetUrl)
+    }
     setLoading(false)
+  }
+
+  function handleCopy() {
+    if (!devResetUrl) return
+    navigator.clipboard.writeText(devResetUrl)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
   }
 
   return (
@@ -35,11 +48,27 @@ export default function ForgotPasswordPage() {
 
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
         {success ? (
-          <div className="text-center space-y-3">
-            <div className="text-4xl">📧</div>
-            <p className="font-medium text-gray-900">Email sent</p>
-            <p className="text-sm text-gray-500">{success}</p>
-            <Link href="/login" className="text-sm text-blue-700 hover:underline block">
+          <div className="space-y-4">
+            <div className="text-center space-y-2">
+              <p className="font-medium text-gray-900">Check your email</p>
+              <p className="text-sm text-gray-500">{success}</p>
+            </div>
+
+            {devResetUrl && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 space-y-2">
+                <p className="text-xs font-semibold text-amber-800">
+                  No email provider configured — use this link directly:
+                </p>
+                <div className="flex items-center gap-2">
+                  <code className="text-xs text-amber-900 break-all flex-1">{devResetUrl}</code>
+                  <button onClick={handleCopy} className="flex-shrink-0 text-amber-700 hover:text-amber-900">
+                    {copied ? <Check size={14} /> : <Copy size={14} />}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <Link href="/login" className="text-sm text-blue-700 hover:underline block text-center">
               Back to login
             </Link>
           </div>

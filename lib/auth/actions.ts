@@ -1,6 +1,7 @@
 'use server'
 
 import bcrypt from 'bcryptjs'
+import { randomBytes } from 'crypto'
 import { redirect } from 'next/navigation'
 import { db } from '@/lib/db'
 import { createSession, deleteSession } from '@/lib/session'
@@ -42,17 +43,59 @@ export async function signOut() {
   redirect('/')
 }
 
-export async function forgotPassword(_formData: FormData) {
-  // Email sending will be wired up when an email provider is configured.
-  // For now, always return success to avoid leaking whether an email exists.
+export async function forgotPassword(
+  formData: FormData,
+): Promise<{ success?: string; devResetUrl?: string; error?: string }> {
+  const email = (formData.get('email') as string ?? '').trim().toLowerCase()
+  if (!email) return { error: 'Email is required.' }
+
+  const user = await db.user.findUnique({ where: { email }, select: { id: true } })
+
+  if (user) {
+    // Invalidate any existing unused tokens
+    await db.passwordResetToken.deleteMany({ where: { userId: user.id, usedAt: null } })
+
+    const token = randomBytes(32).toString('hex')
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000) // 1 hour
+    await db.passwordResetToken.create({ data: { userId: user.id, token, expiresAt } })
+
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
+    const resetUrl = `${baseUrl}/reset-password?token=${token}`
+
+    // When an email provider is configured, send resetUrl by email instead.
+    return {
+      success: 'If that email is registered, a reset link has been sent.',
+      devResetUrl: resetUrl,
+    }
+  }
+
+  // Always return success to avoid leaking whether the email exists
   return { success: 'If that email is registered, a reset link has been sent.' }
 }
 
-export async function resetPassword(formData: FormData) {
+export async function resetPassword(
+  formData: FormData,
+): Promise<{ success?: boolean; error?: string }> {
+  const token = (formData.get('token') as string ?? '').trim()
   const password = formData.get('password') as string
+
+  if (!token) return { error: 'Missing reset token.' }
   if (!password || password.length < 8)
     return { error: 'Password must be at least 8 characters.' }
 
-  // Token-based reset will be implemented in Phase 2 with email provider integration.
-  return { error: 'Password reset is not yet available.' }
+  const record = await db.passwordResetToken.findUnique({
+    where: { token },
+    select: { userId: true, expiresAt: true, usedAt: true },
+  })
+
+  if (!record || record.usedAt || record.expiresAt < new Date())
+    return { error: 'This reset link is invalid or has expired.' }
+
+  const passwordHash = await bcrypt.hash(password, 12)
+  await db.$transaction([
+    db.user.update({ where: { id: record.userId }, data: { passwordHash } }),
+    db.passwordResetToken.update({ where: { token }, data: { usedAt: new Date() } }),
+  ])
+
+  return { success: true }
 }

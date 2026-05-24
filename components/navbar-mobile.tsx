@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { Menu, X } from 'lucide-react'
 import { signOut } from '@/lib/auth/actions'
 
-export default function NavbarMobile({ isAuthed }: { isAuthed: boolean }) {
+export default function NavbarMobile({ isAuthed, isAdmin }: { isAuthed: boolean; isAdmin: boolean }) {
   const [open, setOpen] = useState(false)
 
   return (
@@ -25,6 +25,9 @@ export default function NavbarMobile({ isAuthed }: { isAuthed: boolean }) {
             <>
               <Link href="/dashboard" className="text-gray-600 hover:text-blue-700" onClick={() => setOpen(false)}>Dashboard</Link>
               <Link href="/upload" className="text-gray-600 hover:text-blue-700" onClick={() => setOpen(false)}>Upload</Link>
+              {isAdmin && (
+                <Link href="/admin" className="font-medium text-purple-700 hover:text-purple-900" onClick={() => setOpen(false)}>Admin</Link>
+              )}
               <form action={signOut}>
                 <button type="submit" className="text-gray-600 hover:text-blue-700 text-left w-full">Sign out</button>
               </form>
