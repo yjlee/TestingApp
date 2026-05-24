@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { BookOpen } from 'lucide-react'
+import Image from 'next/image'
 import { getSession } from '@/lib/session'
 import { signOut } from '@/lib/auth/actions'
 import NavbarMobile from '@/components/navbar-mobile'
@@ -15,9 +15,8 @@ export default async function Navbar() {
         <div className="flex justify-between items-center h-16">
 
           {/* Logo */}
-          <Link href="/" className="flex items-center gap-2 font-bold text-xl text-blue-700">
-            <BookOpen size={24} />
-            ThesisHub
+          <Link href="/">
+            <Image src="/logo.png" alt="PaperPath" width={130} height={38} className="h-9 w-auto" />
           </Link>
 
           {/* Desktop nav */}

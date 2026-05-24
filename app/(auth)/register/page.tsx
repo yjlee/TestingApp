@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { signUp } from '@/lib/auth/actions'
-import { BookOpen } from 'lucide-react'
+import Image from 'next/image'
 
 export default function RegisterPage() {
   const [error, setError] = useState<string | null>(null)
@@ -34,9 +34,8 @@ export default function RegisterPage() {
   return (
     <div className="w-full max-w-md">
       <div className="text-center mb-8">
-        <Link href="/" className="inline-flex items-center gap-2 text-blue-700 font-bold text-2xl">
-          <BookOpen size={28} />
-          ThesisHub
+        <Link href="/" className="inline-block">
+          <Image src="/logo.png" alt="PaperPath" width={160} height={46} className="h-11 w-auto mx-auto" />
         </Link>
         <h1 className="mt-4 text-2xl font-semibold text-gray-900">Create an account</h1>
         <p className="mt-1 text-sm text-gray-500">Join the academic community</p>

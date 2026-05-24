@@ -5,7 +5,7 @@ import './globals.css'
 const geist = Geist({ subsets: ['latin'], variable: '--font-geist' })
 
 export const metadata: Metadata = {
-  title: 'ThesisHub — Publish & Review Academic Work',
+  title: 'PaperPath — Publish & Review Academic Work',
   description: 'Upload your thesis, get peer reviewed, and reach the academic community.',
 }
 

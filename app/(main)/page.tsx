@@ -19,7 +19,7 @@ export default async function HomePage() {
             <span className="text-blue-700">Get peer reviewed.</span>
           </h1>
           <p className="mt-5 text-lg text-gray-500 max-w-2xl mx-auto">
-            ThesisHub is an open platform for students and researchers to publish thesis work,
+            PaperPath is an open platform for students and researchers to publish thesis work,
             receive anonymous expert reviews, and reach the academic community.
           </p>
           <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center">
